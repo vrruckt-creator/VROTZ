@@ -1,0 +1,87 @@
+require('dotenv').config();
+
+const { Client, GatewayIntentBits } = require('discord.js');
+const express = require('express');
+const axios = require('axios');
+
+const app = express();
+
+const client = new Client({
+    intents: [GatewayIntentBits.Guilds]
+});
+
+client.once('ready', () => {
+    console.log(`Logged in as ${client.user.tag}`);
+});
+
+client.login(process.env.DISCORD_TOKEN);
+
+client.on('interactionCreate', async interaction => {
+    if (!interaction.isChatInputCommand()) return;
+
+    if (interaction.commandName === 'epiclogin') {
+
+        const loginURL =
+`https://www.epicgames.com/id/authorize?client_id=${process.env.CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(process.env.REDIRECT_URI)}`;
+
+        await interaction.reply({
+            content: `Login with Epic Games:\n${loginURL}`,
+            ephemeral: true
+        });
+    }
+});
+
+app.get('/callback', async (req, res) => {
+    const code = req.query.code;
+
+    if (!code) {
+        return res.send('No code provided.');
+    }
+
+    try {
+
+        const tokenResponse = await axios.post(
+            'https://api.epicgames.dev/epic/oauth/v2/token',
+            new URLSearchParams({
+                grant_type: 'authorization_code',
+                code: code,
+                redirect_uri: process.env.REDIRECT_URI
+            }),
+            {
+                auth: {
+                    username: process.env.CLIENT_ID,
+                    password: process.env.CLIENT_SECRET
+                },
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                }
+            }
+        );
+
+        const accessToken = tokenResponse.data.access_token;
+
+        const userResponse = await axios.get(
+            'https://api.epicgames.dev/epic/oauth/v2/userInfo',
+            {
+                headers: {
+                    Authorization: `Bearer ${accessToken}`
+                }
+            }
+        );
+
+        console.log(userResponse.data);
+
+        res.send(`
+            <h1>Logged in successfully!</h1>
+            <p>Welcome ${userResponse.data.preferredName}</p>
+        `);
+
+    } catch (err) {
+        console.error(err.response?.data || err.message);
+        res.send('Login failed.');
+    }
+});
+
+app.listen(3000, () => {
+    console.log('OAuth server running on port 3000');
+});
